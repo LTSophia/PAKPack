@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.Remoting.Messaging;
 using System.Text;
+using System.Text.RegularExpressions;
 using AtlusFileSystemLibrary.Common.IO;
 
 namespace AtlusFileSystemLibrary.FileSystems.PAK
@@ -42,8 +44,14 @@ namespace AtlusFileSystemLibrary.FileSystems.PAK
                 return false;
             }
 
+            if (!TryReadEntries(stream, version))
+            {
+                archive = null;
+                return false;
+            }
+
             archive = new PAKFileSystem( stream, ownsStream, version );
-            return true;
+            return archive != null;
         }
 
         private static bool IsValidFormatVersion1( Stream stream )
@@ -78,7 +86,56 @@ namespace AtlusFileSystemLibrary.FileSystems.PAK
             int testLength = BitConverter.ToInt32( testData, 252 );
 
             // sanity check, if the length of the first file is >= 100 mb, fail the test
-            if ( testLength >= stream.Length || testLength < 0 )
+            if ( testLength >= stream.Length || testLength < 0 || testLength > 1024 * 1024 * 100)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsValidFormatVersion1B(Stream stream)
+        {
+            // check if the file is too small to be a proper pak file
+            if (stream.Length <= 256)
+            {
+                return false;
+            }
+
+            // read some test data
+            byte[] testData = new byte[256];
+            stream.Read(testData, 0, 256);
+            stream.Position = 0;
+
+            // check if first byte is zero, if so then no name can be stored thus making the file corrupt
+            if (testData[0] == 0x00)
+                return false; 
+
+            var stringBuilder = new StringBuilder();
+
+            for (int i = 0; i < 252; i++)
+            {
+                byte b = testData[i];
+                if (b == 0)
+                    break;
+
+                stringBuilder.Append((char)b);
+
+                // If the name is too long,
+                // fail the test
+                if (i>=200)
+                    return false;
+            }
+            
+            var testString = stringBuilder.ToString();
+
+            if(!Regex.IsMatch(testString, @"^[A-Z0-9\.\\/_-]+$", RegexOptions.IgnoreCase) || testString.Length <= 4)
+                return false;
+
+            int testLength = BitConverter.ToInt32(testData, 252);
+
+            // sanity check, if the length of the first file is >= 100 mb, fail the test
+            if (testLength >= stream.Length || testLength < 0 || testLength > 1024 * 1024 * 100)
             {
                 return false;
             }
@@ -153,6 +210,9 @@ namespace AtlusFileSystemLibrary.FileSystems.PAK
             if ( IsValidFormatVersion2And3( stream, 28, out isBigEndian ) )
                 return isBigEndian ? FormatVersion.Version3BE : FormatVersion.Version3;
 
+            if (IsValidFormatVersion1B( stream ) )
+                return FormatVersion.Version1;
+
             return FormatVersion.Unknown;
         }
 
@@ -193,6 +253,7 @@ namespace AtlusFileSystemLibrary.FileSystems.PAK
         {
             Version = version;
             Load( baseStream, ownsStream );
+
         }
 
         // INamedFileSystem implementation
@@ -207,9 +268,102 @@ namespace AtlusFileSystemLibrary.FileSystems.PAK
             mBaseStream = stream;
             mOwnsStream = ownsStream;
             Version = DetectVersion( mBaseStream );
-
+            
             ReadEntries();
         }
+
+        private static bool TryReadEntries( Stream stream, FormatVersion version )
+        {
+            var isBigEndian = ( version == FormatVersion.Version2BE || version == FormatVersion.Version3BE );
+
+            using (var reader = new EndianBinaryReader(stream, Encoding.Default, true, isBigEndian ? Endianness.BigEndian : Endianness.LittleEndian))
+            {
+                if (version == FormatVersion.Version1)
+                {
+                    var stringBuilder = new StringBuilder();
+                    while (true)
+                    {
+                        long entryStartPosition = reader.BaseStream.Position;
+
+                        if (entryStartPosition > reader.BaseStream.Length)
+                            return false;
+
+                        if (entryStartPosition == reader.BaseStream.Length)
+                            break;
+
+                        while (true)
+                        {
+                            byte b = reader.ReadByte();
+                            if (b == 0)
+                                break;
+
+                            stringBuilder.Append((char)b);
+
+                            // just to be safe
+                            if (stringBuilder.Length >= 252)
+                                break;
+                        }
+
+                        string fileName = stringBuilder.ToString();
+
+                        // set position to length field
+                        reader.BaseStream.Position = entryStartPosition + 252;
+
+                        if (reader.BaseStream.Position + 4 > reader.BaseStream.Length)
+                            return false;
+
+                        // read entry length
+                        int length = reader.ReadInt32();
+
+                        if ( length == 0 )
+                            break;
+                        else if ( length < 0 || length > 1024 * 1024 * 100 )
+                            return false;
+
+                        Console.WriteLine("\"" + fileName + "\"");
+
+                        if (!Regex.IsMatch(fileName, @"^[A-Z0-9\.\\/_\-]+$", RegexOptions.IgnoreCase) || fileName.Length <= 4)
+                            return false;
+
+                        // clear string builder for next iteration
+                        stringBuilder.Clear();
+
+                        reader.BaseStream.Position = AlignmentUtils.Align(reader.BaseStream.Position + length, 64);
+                    }
+                }
+                else if (version == FormatVersion.Version2 || version == FormatVersion.Version2BE || version == FormatVersion.Version3 || version == FormatVersion.Version3BE)
+                {
+                    int entryCount = reader.ReadInt32();
+                    int nameLength = 32;
+                    if (version == FormatVersion.Version3)
+                        nameLength = 24;
+
+                    for (int i = 0; i < entryCount; i++)
+                    {
+                        long entryStartPosition = reader.BaseStream.Position;
+                        if (entryStartPosition == reader.BaseStream.Length)
+                            break;
+
+                        reader.BaseStream.Position = entryStartPosition + nameLength;
+
+                        if (reader.BaseStream.Position + 4 >= reader.BaseStream.Length)
+                            return false;
+
+                        // read entry length
+                        int length = reader.ReadInt32();
+
+                        if (length < 0 || length > 1024 * 1024 * 100)
+                            return false;
+
+                        reader.BaseStream.Position += length;
+                    }
+                }
+            }
+
+            stream.Position = 0;
+            return true;
+        }
+        
 
         private void ReadEntries()
         {
@@ -224,12 +378,12 @@ namespace AtlusFileSystemLibrary.FileSystems.PAK
                     while ( true )
                     {
                         long entryStartPosition = reader.BaseStream.Position;
-                        if ( entryStartPosition == reader.BaseStream.Length )
+                        if ( entryStartPosition >= reader.BaseStream.Length )
                         {
                             break;
                         }
 
-                        // read entry name
+                            // read entry name
                         while ( true )
                         {
                             byte b = reader.ReadByte();
@@ -297,9 +451,7 @@ namespace AtlusFileSystemLibrary.FileSystems.PAK
                         int length = reader.ReadInt32();
 
                         if ( fileName.Length == 0 || length <= 0 || length > 1024 * 1024 * 100 )
-                        {
                             break;
-                        }
 
                         // make an entry
                         var entry = new StoredEntry( mBaseStream, fileName, length, ( int )reader.BaseStream.Position );
@@ -312,7 +464,7 @@ namespace AtlusFileSystemLibrary.FileSystems.PAK
                         mEntryMap[entry.FileName] = entry;
                     }
                 }
-            }              
+            }
         }
 
         private bool TryFindEntry( string name, out IEntry entry )
