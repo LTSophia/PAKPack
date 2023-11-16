@@ -77,35 +77,27 @@ namespace PAKPack
         {
             if ( args.Length == 0 )
             {
-                Console.WriteLine( "PAKPack 1.4 - A PAK pack/unpacker made by TGE (2018)\n" +
-                                   "\n" +
+                Console.WriteLine( "PAKPack 1.4 - A PAK pack/unpacker made by TGE in 2018 (and edited by LtSophia in 2023)\n" +
                                    "Usage:\n" +
                                    "  PAKPack <command>\n" +
-                                   "\n" +
                                    "Commands:\n" +
-                                   "\n" +
-                                   "    pack        Packs the given input into a PAK file and outputs it to the specified output path.\n" +
+                                   "    pack:  Packs the given input into a PAK file and outputs it to the specified output path.\n" +
                                    "        Usage:\n" +
                                    "            pack <input directory path> <format> [output file path]\n" +
-                                   "\n" +
-                                   "    unpack      Unpacks the given input PAK file and outputs it to the specified output directory.\n" +
+                                   "    unpack:  Unpacks the given input PAK file and outputs it to the specified output directory.\n" +
                                    "        Usage:\n" +
-                                   "            unpack <input file path> [output directory path]\n" +
-                                   "\n" +
-                                   "    replace     Replaces the specified file(s) with the contents of the specified input\n" +
+                                   "            unpack <pak file> [output directory path]\n" +
+                                   "    replace:  Replaces the specified file(s) with the contents of the specified input\n" +
                                    "        Usage:\n" +
-                                   "            replace <input pak file path> <file name to replace> <file path> [output file path]\n" +
-                                   "            replace <input pak file path> <path to file directory> [output file path]\n" +
-                                   "\n" +
-                                   "    add         Adds or replaces the specified file(s) with the contents of the specified input\n" +
+                                   "            replace <pak file> <file name to replace> <file path> [output file path]\n" +
+                                   "            replace <pak file> <path to file/directory> [output file path]\n" +
+                                   "    add:  Adds or replaces the specified file(s) in the pak with the contents of the specified input\n" +
                                    "        Usage:\n" +
-                                   "            add <input pak file path> <file name to add/replace> <file path> [output file path]\n" +
-                                   "            add <input pak file path> <path to file directory> [output file path]\n" +
-                                   "\n" +
-                                   "    list        Lists the files contained in the pak file\n" +
+                                   "            add <pak file> <file name to add/replace> <file path> [output file path]\n" +
+                                   "            add <pak file> <path to file/directory> [output file path]\n" +
+                                   "    list:  Lists the files contained in the pak file\n" +
                                    "        Usage:\n" +
-                                   "            list <input pak file path>\n" +
-                                   "\n" );
+                                   "            list <pak file>" );
                 return;
             }
             if ( !Commands.TryGetValue( args[ 0 ], out var command ) )
